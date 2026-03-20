@@ -1,0 +1,13 @@
+[project]
+name = "scouter"
+version = "0.1.0"
+description = "sparse autoencoder training for MoE language models"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "sae-lens",
+    "transformers",
+    "datasets",
+    "torch",
+    "safetensors",
+]

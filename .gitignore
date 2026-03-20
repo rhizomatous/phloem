@@ -1,0 +1,13 @@
+.notes/
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+
+# Cached activations (large binary files)
+models/*/activations/
+
+# SAE training outputs
+models/*/checkpoints/
+models/*/wandb/
