@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "sae-lens",
     "transformers",
-    "datasets",
+    "datasets>=3,<4",
     "torch",
     "safetensors",
 ]
