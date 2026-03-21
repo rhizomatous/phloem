@@ -1,5 +1,9 @@
 """train a sparse autoencoder on cached DeepSeek-V2-Lite activations."""
 
+from scouter.env import load_env
+
+load_env()
+
 import argparse
 
 from sae_lens import (

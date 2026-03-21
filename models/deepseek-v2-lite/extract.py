@@ -1,5 +1,9 @@
 """extract activations from DeepSeek-V2-Lite and cache in SAELens-compatible format."""
 
+from scouter.env import load_env
+
+load_env()
+
 import argparse
 from pathlib import Path
 

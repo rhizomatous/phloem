@@ -2386,6 +2386,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
+    { name = "python-dotenv" },
     { name = "sae-lens" },
     { name = "safetensors" },
     { name = "torch" },
@@ -2395,6 +2396,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "datasets", specifier = ">=3,<4" },
+    { name = "python-dotenv" },
     { name = "sae-lens" },
     { name = "safetensors" },
     { name = "torch" },
