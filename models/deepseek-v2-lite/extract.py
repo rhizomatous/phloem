@@ -1,6 +1,6 @@
 """extract activations from DeepSeek-V2-Lite and cache in SAELens-compatible format."""
 
-from scouter.env import load_env
+from phloem.env import load_env
 
 load_env()
 
@@ -12,7 +12,7 @@ from datasets import Array2D, Dataset, Features, Sequence, Value
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from scouter.data_loader import stream_token_batches
+from phloem.data_loader import stream_token_batches
 
 MODEL_NAME = "deepseek-ai/DeepSeek-V2-Lite"
 HOOK_LAYER = 13  # mid-network (27 layers total)

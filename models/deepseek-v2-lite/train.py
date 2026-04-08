@@ -1,6 +1,6 @@
 """train a sparse autoencoder on cached DeepSeek-V2-Lite activations."""
 
-from scouter.env import load_env
+from phloem.env import load_env
 
 load_env()
 
