@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import PreTrainedTokenizerBase
 
 
 def stream_documents(

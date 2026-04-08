@@ -1,4 +1,4 @@
-"""extract activations from DeepSeek-V2-Lite and cache in SAELens-compatible format."""
+"""extract activations from Gemma 4 E2B and cache in SAELens-compatible format."""
 
 import argparse
 from pathlib import Path
@@ -13,13 +13,19 @@ from phloem.env import load_env
 
 load_env()
 
-MODEL_NAME = "deepseek-ai/DeepSeek-V2-Lite"
-HOOK_LAYER = 13  # mid-network (27 layers total)
-D_IN = 2048  # hidden dim
+MODEL_NAME = "google/gemma-4-E2B"
+HOOK_LAYER = 17  # mid-network (35 layers total)
+D_IN = 1536  # hidden dim
+
+# use TransformerLens-style hook name as dataset column key.
+# SAELens uses this as a string key, and SAEDashboard/Neuronpedia
+# hard-validate against TL naming — so we use it from the start
+# even though we extract via raw HF hooks.
+HOOK_NAME = f"blocks.{HOOK_LAYER}.hook_resid_post"
 
 
 def extract_activations(
-    output_dir: str = "models/deepseek-v2-lite/activations",
+    output_dir: str = "models/gemma-4-e2b/activations",
     hook_layer: int = HOOK_LAYER,
     max_tokens: int = 100_000,
     batch_size: int = 4,
@@ -36,18 +42,18 @@ def extract_activations(
     output_path.mkdir(parents=True, exist_ok=True)
 
     storage_dtype = torch.float32 if dtype == "float32" else torch.float16
-    hook_name = f"model.layers.{hook_layer}"
+    hook_name = f"blocks.{hook_layer}.hook_resid_post"
 
     print(f"loading model: {MODEL_NAME}")
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         torch_dtype=torch.bfloat16,
         device_map=device,
-        trust_remote_code=True,
+        attn_implementation="sdpa",
     )
     model.eval()
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     print(f"hooking layer {hook_layer} (hidden dim {D_IN})")
 
     # collect activations via forward hook
@@ -93,7 +99,7 @@ def extract_activations(
     finally:
         handle.remove()
 
-    print(f"vollected {tokens_collected:,} tokens, saving to {output_path}...")
+    print(f"collected {tokens_collected:,} tokens, saving to {output_path}...")
 
     # stack into (n_sequences, seq_len, d_in) and (n_sequences, seq_len)
     acts_tensor = torch.cat(all_activations, dim=0)
@@ -124,8 +130,8 @@ def extract_activations(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="extract DeepSeek-V2-Lite activations")
-    parser.add_argument("--output-dir", default="models/deepseek-v2-lite/activations")
+    parser = argparse.ArgumentParser(description="extract Gemma 4 E2B activations")
+    parser.add_argument("--output-dir", default="models/gemma-4-e2b/activations")
     parser.add_argument("--hook-layer", type=int, default=HOOK_LAYER)
     parser.add_argument("--max-tokens", type=int, default=100_000)
     parser.add_argument("--batch-size", type=int, default=4)

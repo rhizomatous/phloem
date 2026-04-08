@@ -1,4 +1,4 @@
-"""train a sparse autoencoder on cached DeepSeek-V2-Lite activations."""
+"""train a sparse autoencoder on cached Gemma 4 E2B activations."""
 
 import argparse
 
@@ -12,13 +12,13 @@ from phloem.env import load_env
 
 load_env()
 
-MODEL_NAME = "deepseek-ai/DeepSeek-V2-Lite"
-HOOK_LAYER = 13
-D_IN = 2048
+MODEL_NAME = "google/gemma-4-E2B"
+HOOK_LAYER = 17
+D_IN = 1536
 
 
 def train_sae(
-    cached_activations_path: str = "models/deepseek-v2-lite/activations",
+    cached_activations_path: str = "models/gemma-4-e2b/activations",
     hook_layer: int = HOOK_LAYER,
     d_in: int = D_IN,
     expansion_factor: int = 8,
@@ -30,7 +30,7 @@ def train_sae(
     device: str = "cuda",
     log_to_wandb: bool = False,
 ) -> None:
-    hook_name = f"model.layers.{hook_layer}"
+    hook_name = f"blocks.{hook_layer}.hook_resid_post"
     d_sae = d_in * expansion_factor
 
     sae_cfg = BatchTopKTrainingSAEConfig(
@@ -50,9 +50,6 @@ def train_sae(
         train_batch_size_tokens=train_batch_size_tokens,
         lr=lr,
         device=device,
-        model_from_pretrained_kwargs={
-            "trust_remote_code": True,
-        },
     )
     cfg.logger.log_to_wandb = log_to_wandb
 
@@ -63,8 +60,8 @@ def train_sae(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="train SAE on DeepSeek-V2-Lite activations")
-    parser.add_argument("--cached-activations-path", default="models/deepseek-v2-lite/activations")
+    parser = argparse.ArgumentParser(description="train SAE on Gemma 4 E2B activations")
+    parser.add_argument("--cached-activations-path", default="models/gemma-4-e2b/activations")
     parser.add_argument("--hook-layer", type=int, default=HOOK_LAYER)
     parser.add_argument("--d-in", type=int, default=D_IN)
     parser.add_argument("--expansion-factor", type=int, default=8)
