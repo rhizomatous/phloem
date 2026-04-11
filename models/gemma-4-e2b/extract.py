@@ -65,8 +65,13 @@ def extract_activations(
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     print(f"hooking layer {hook_layer} (hidden dim {D_IN})")
 
-    # collect activations via forward hook
+    # collect activations via forward hook, then short-circuit the forward pass.
+    # running the full model through the LM head would waste VRAM on a huge
+    # logits tensor (seq_len * vocab_size) that we don't need.
     captured: list[torch.Tensor] = []
+
+    class _StopForward(Exception):
+        pass
 
     def hook_fn(module, input, output):
         # Gemma 4 decoder layers return the hidden state tensor directly
@@ -75,6 +80,7 @@ def extract_activations(
             # (seq_len, d_in) -> (1, seq_len, d_in) when batch dim is missing
             hidden = hidden.unsqueeze(0)
         captured.append(hidden)
+        raise _StopForward()
 
     handle = model.model.language_model.layers[hook_layer].register_forward_hook(hook_fn)
 
@@ -97,8 +103,11 @@ def extract_activations(
             captured.clear()
 
             input_device = next(model.parameters()).device
-            with torch.no_grad():
-                model(batch_tokens.to(input_device))
+            try:
+                with torch.no_grad():
+                    model(batch_tokens.to(input_device))
+            except _StopForward:
+                pass
 
             # captured[0] shape: (batch_size, seq_len, d_in)
             acts = captured[0]
