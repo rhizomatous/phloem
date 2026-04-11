@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from phloem.data_loader import stream_token_batches
 from phloem.env import load_env
+from phloem.utils.device import resolve_device
 
 load_env()
 
@@ -43,14 +44,22 @@ def extract_activations(
 
     storage_dtype = torch.float32 if dtype == "float32" else torch.float16
     hook_name = f"blocks.{hook_layer}.hook_resid_post"
+    resolved_device = resolve_device(device)
 
-    print(f"loading model: {MODEL_NAME}")
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-        attn_implementation="sdpa",
-    )
+    print(f"loading model: {MODEL_NAME} on {resolved_device}")
+    load_kwargs: dict = {
+        "dtype": torch.bfloat16,
+        "attn_implementation": "sdpa",
+    }
+    # on CUDA, "auto" lets transformers shard across multiple GPUs if available
+    # (and harmlessly loads to GPU 0 on single-GPU setups). MPS/CPU just take the
+    # device name directly since they don't support sharding.
+    if resolved_device == "cuda":
+        load_kwargs["device_map"] = "auto"
+    else:
+        load_kwargs["device_map"] = resolved_device
+
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **load_kwargs)
     model.eval()
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -60,11 +69,14 @@ def extract_activations(
     captured: list[torch.Tensor] = []
 
     def hook_fn(module, input, output):
-        # output is a tuple; first element is the hidden state (batch, seq_len, d_in)
-        hidden = output[0].detach().cpu().to(storage_dtype)
+        # Gemma 4 decoder layers return the hidden state tensor directly
+        hidden = output.detach().cpu().to(storage_dtype)
+        if hidden.dim() == 2:
+            # (seq_len, d_in) -> (1, seq_len, d_in) when batch dim is missing
+            hidden = hidden.unsqueeze(0)
         captured.append(hidden)
 
-    handle = model.model.layers[hook_layer].register_forward_hook(hook_fn)
+    handle = model.model.language_model.layers[hook_layer].register_forward_hook(hook_fn)
 
     all_activations: list[torch.Tensor] = []
     all_token_ids: list[torch.Tensor] = []

@@ -14,3 +14,4 @@ models/*/activations/
 # SAE training outputs
 models/*/checkpoints/
 models/*/wandb/
+output/

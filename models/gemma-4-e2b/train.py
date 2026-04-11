@@ -2,13 +2,16 @@
 
 import argparse
 
+from datasets import Dataset
 from sae_lens import (
     BatchTopKTrainingSAEConfig,
     LanguageModelSAERunnerConfig,
     LanguageModelSAETrainingRunner,
 )
+from transformer_lens import HookedTransformer
 
 from phloem.env import load_env
+from phloem.utils.device import resolve_device
 
 load_env()
 
@@ -27,9 +30,10 @@ def train_sae(
     train_batch_size_tokens: int = 4096,
     context_size: int = 128,
     lr: float = 3e-4,
-    device: str = "cuda",
+    device: str = "auto",
     log_to_wandb: bool = False,
 ) -> None:
+    resolved_device = resolve_device(device)
     hook_name = f"blocks.{hook_layer}.hook_resid_post"
     d_sae = d_in * expansion_factor
 
@@ -49,11 +53,19 @@ def train_sae(
         training_tokens=training_tokens,
         train_batch_size_tokens=train_batch_size_tokens,
         lr=lr,
-        device=device,
+        device=resolved_device,
     )
     cfg.logger.log_to_wandb = log_to_wandb
 
-    runner = LanguageModelSAETrainingRunner(cfg)
+    # SAELens requires a model and dataset even in cached activation mode.
+    # Gemma 4 isn't in TransformerLens yet, so we pass stubs for both.
+    # neither is used for training, activations come entirely from the cache.
+    dummy_model = HookedTransformer.from_pretrained("gpt2", device=resolved_device)
+    dummy_dataset = Dataset.from_dict({"tokens": [[0] * context_size]})
+
+    runner = LanguageModelSAETrainingRunner(
+        cfg, override_model=dummy_model, override_dataset=dummy_dataset
+    )
     sae = runner.run()
     print(f"training complete. SAE d_in={d_in}, d_sae={d_sae}, k={k}")
     return sae
@@ -70,7 +82,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-batch-size-tokens", type=int, default=4096)
     parser.add_argument("--context-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", default="auto")
     parser.add_argument("--wandb", action="store_true", dest="log_to_wandb")
     args = parser.parse_args()
 
