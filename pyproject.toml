@@ -5,7 +5,7 @@ description = "sparse autoencoder training for MoE language models"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "sae-lens",
+    "eai-sparsify",
     "transformers>=5.5",
     "datasets>=3,<4",
     "torch",
