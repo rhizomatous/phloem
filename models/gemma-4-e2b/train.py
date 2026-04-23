@@ -79,6 +79,7 @@ def train_sae(
     run_name: str = "gemma-4-e2b-topk",
     seed: int = 42,
     data_dir: str | None = None,
+    resume: str | None = None,
 ) -> None:
     if layers is None:
         layers = [17]
@@ -119,6 +120,7 @@ def train_sae(
         log_to_wandb=log_to_wandb,
         save_dir=save_dir,
         run_name=run_name,
+        finetune=resume,
     )
 
     trainer = Trainer(cfg, dataset, model)
@@ -158,6 +160,11 @@ if __name__ == "__main__":
         default=None,
         help="directory for tokenized memmap file (default: temp dir, cleaned up by OS)",
     )
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="checkpoint directory to resume from (e.g. models/gemma-4-e2b/checkpoints/my-run)",
+    )
     args = parser.parse_args()
 
     if args.layers == "all":
@@ -179,4 +186,5 @@ if __name__ == "__main__":
         run_name=args.run_name,
         seed=args.seed,
         data_dir=args.data_dir,
+        resume=args.resume,
     )
