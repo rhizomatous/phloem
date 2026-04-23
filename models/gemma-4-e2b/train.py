@@ -109,6 +109,7 @@ def train_sae(
         activation="topk",
         k=k,
         expansion_factor=expansion_factor,
+        multi_topk=True,
     )
     cfg = TrainConfig(
         sae=sae_cfg,
