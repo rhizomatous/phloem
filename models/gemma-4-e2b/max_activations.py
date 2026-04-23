@@ -63,6 +63,7 @@ def collect_max_activations(
     # per-feature max-heaps: {hookpoint: {feature_idx: [(act, token_str, context_str), ...]}}
     # using min-heaps of size top_n (heapq is a min-heap, so smallest gets evicted)
     heaps: dict[str, dict[int, list]] = {hp: {} for hp in saes}
+    counter = 0  # tiebreaker so the heap never compares dicts
 
     tokens_seen = 0
     for batch in tqdm(
@@ -103,12 +104,13 @@ def collect_max_activations(
                         heap = heaps[hp][feat]
 
                     if len(heap) < top_n:
-                        # build context string
                         ctx = _build_context(tokenizer, token_ids[batch_idx], seq_idx)
-                        heapq.heappush(heap, (val, ctx))
+                        heapq.heappush(heap, (val, counter, ctx))
+                        counter += 1
                     elif val > heap[0][0]:
                         ctx = _build_context(tokenizer, token_ids[batch_idx], seq_idx)
-                        heapq.heapreplace(heap, (val, ctx))
+                        heapq.heapreplace(heap, (val, counter, ctx))
+                        counter += 1
 
         tokens_seen += batch.numel()
 
@@ -121,7 +123,7 @@ def collect_max_activations(
     for hp in saes:
         rows = []
         for feat_idx, heap in heaps[hp].items():
-            for val, ctx in sorted(heap, reverse=True):
+            for val, _counter, ctx in sorted(heap, reverse=True):
                 rows.append([feat_idx, val, ctx["token"], ctx["context"]])
         results[hp] = rows
 
