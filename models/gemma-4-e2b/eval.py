@@ -93,7 +93,7 @@ def eval_sae(
         mean_acts.scatter_add_(
             0,
             out.latent_indices.flatten(),
-            out.latent_acts.flatten(),
+            out.latent_acts.flatten().float(),
         )
         mean_acts /= activations.shape[0]
         top5 = mean_acts.topk(5)
