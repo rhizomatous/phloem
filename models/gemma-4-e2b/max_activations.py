@@ -1,7 +1,6 @@
 """find max-activating examples for each SAE feature across all layers."""
 
 import argparse
-import heapq
 from pathlib import Path
 
 import pyarrow as pa
@@ -60,12 +59,22 @@ def collect_max_activations(
     for hp in saes:
         handles.append(modules[hp].register_forward_hook(make_hook(hp)))
 
-    # per-feature max-heaps: {hookpoint: {feature_idx: [(act, token_str, context_str), ...]}}
-    # using min-heaps of size top_n (heapq is a min-heap, so smallest gets evicted)
-    heaps: dict[str, dict[int, list]] = {hp: {} for hp in saes}
-    counter = 0  # tiebreaker so the heap never compares dicts
+    # per-feature tracking: for each hookpoint, keep the top-N activation values
+    # and the (batch_step, batch_idx, seq_idx) coordinates to reconstruct context later.
+    # top_vals[hp] shape: (num_latents, top_n) — the N highest activations seen so far.
+    # top_coords[hp] shape: (num_latents, top_n, 3) — (batch_step, batch_idx, seq_idx).
+    # we also store all token_ids to look up context at the end.
+    top_vals: dict[str, torch.Tensor] = {}
+    top_coords: dict[str, torch.Tensor] = {}
+    for hp, sae in saes.items():
+        top_vals[hp] = torch.full((sae.num_latents, top_n), -float("inf"))
+        top_coords[hp] = torch.zeros((sae.num_latents, top_n, 3), dtype=torch.long)
 
-    tokens_seen = 0
+    # store all batch token_ids so we can build context strings at the end.
+    # at 10M tokens / 1024 seq_len / 16 batch = 610 batches × 16 × 1024 ints = ~40 MB.
+    all_token_ids: list[torch.Tensor] = []
+
+    batch_step = 0
     for batch in tqdm(
         stream_token_batches(tokenizer, batch_size=batch_size, seq_len=seq_len, max_tokens=max_tokens),
         desc="scanning",
@@ -75,57 +84,89 @@ def collect_max_activations(
         with torch.no_grad():
             model(batch.to(device))
 
+        all_token_ids.append(batch.cpu())
+
         for hp, sae in saes.items():
             acts = captured[hp]
-            if acts.dim() == 3:
-                b, s, d = acts.shape
-            else:
+            if acts.dim() != 3:
                 continue
+            b, s, d = acts.shape
 
             with torch.no_grad():
                 out = sae(acts.reshape(-1, d).float())
 
             # out.latent_indices: (b*s, k), out.latent_acts: (b*s, k)
-            indices = out.latent_indices.cpu()
-            values = out.latent_acts.cpu().float()
-            token_ids = batch  # (b, s)
+            indices = out.latent_indices.cpu()  # (b*s, k)
+            values = out.latent_acts.cpu().float()  # (b*s, k)
 
-            for pos in range(b * s):
-                batch_idx = pos // s
-                seq_idx = pos % s
+            # scatter activations into a dense (num_latents, b*s) matrix, then
+            # find per-feature max across all positions in one vectorized pass.
+            n_tokens = b * s
+            k = indices.shape[1]
 
-                for j in range(indices.shape[1]):
-                    feat = indices[pos, j].item()
-                    val = values[pos, j].item()
+            # build per-feature max activation and argmax across this batch.
+            # dense_acts[feat, token_pos] = activation if that feature fired, else 0.
+            dense_acts = torch.zeros(sae.num_latents, n_tokens)
+            feat_flat = indices.reshape(-1)  # (b*s*k,)
+            vals_flat = values.reshape(-1)   # (b*s*k,)
+            pos_flat = torch.arange(n_tokens).unsqueeze(1).expand(-1, k).reshape(-1)  # (b*s*k,)
+            dense_acts[feat_flat, pos_flat] = vals_flat
 
-                    heap = heaps[hp].get(feat)
-                    if heap is None:
-                        heaps[hp][feat] = []
-                        heap = heaps[hp][feat]
+            # for each feature, get its single best activation in this batch
+            best_vals, best_pos = dense_acts.max(dim=1)  # (num_latents,) each
 
-                    if len(heap) < top_n:
-                        ctx = _build_context(tokenizer, token_ids[batch_idx], seq_idx)
-                        heapq.heappush(heap, (val, counter, ctx))
-                        counter += 1
-                    elif val > heap[0][0]:
-                        ctx = _build_context(tokenizer, token_ids[batch_idx], seq_idx)
-                        heapq.heapreplace(heap, (val, counter, ctx))
-                        counter += 1
+            # check which features have a new activation that beats the current
+            # worst in their top-N heap (the min of top_vals[hp][feat]).
+            current_mins, current_min_idx = top_vals[hp].min(dim=1)  # (num_latents,)
+            improved = best_vals > current_mins  # (num_latents,) bool mask
 
-        tokens_seen += batch.numel()
+            if improved.any():
+                # build coordinates for the improved features
+                improved_pos = best_pos[improved]  # token positions within this batch
+                batch_indices = improved_pos // s
+                seq_indices = improved_pos % s
 
-    # clean up hooks
+                coords = torch.stack([
+                    torch.full_like(batch_indices, batch_step),
+                    batch_indices,
+                    seq_indices,
+                ], dim=1)  # (n_improved, 3)
+
+                # replace the worst entry in each improved feature's top-N
+                replace_idx = current_min_idx[improved]  # which slot to replace
+                feat_mask = improved.nonzero(as_tuple=True)[0]
+
+                top_vals[hp][feat_mask, replace_idx] = best_vals[improved]
+                top_coords[hp][feat_mask, replace_idx] = coords
+
+        batch_step += 1
+
     for h in handles:
         h.remove()
 
-    # convert heaps to sorted lists (highest activation first)
+    # convert to result rows, resolving coordinates to context strings
+    print("resolving context strings...")
     results = {}
     for hp in saes:
         rows = []
-        for feat_idx, heap in heaps[hp].items():
-            for val, _counter, ctx in sorted(heap, reverse=True):
+        vals = top_vals[hp]      # (num_latents, top_n)
+        coords = top_coords[hp]  # (num_latents, top_n, 3)
+
+        for feat_idx in range(vals.shape[0]):
+            for slot in range(top_n):
+                val = vals[feat_idx, slot].item()
+                if val == -float("inf"):
+                    continue
+                bs, bi, si = coords[feat_idx, slot].tolist()
+                token_ids = all_token_ids[bs][bi]
+                ctx = _build_context(tokenizer, token_ids, si)
                 rows.append([feat_idx, val, ctx["token"], ctx["context"]])
+
+        # sort by feature then by activation descending
+        rows.sort(key=lambda r: (r[0], -r[1]))
         results[hp] = rows
+        n_features = len(set(r[0] for r in rows))
+        print(f"  {hp}: {len(rows)} examples across {n_features} features")
 
     return results
 
@@ -171,11 +212,9 @@ def save_parquet(results: dict[str, list[list]], output_dir: str) -> None:
             },
             schema=schema,
         )
-        # use hookpoint as filename, replacing dots with underscores
         filename = hp.replace(".", "_") + ".parquet"
         pq.write_table(table, output_path / filename)
-        n_features = len(set(r[0] for r in rows))
-        print(f"  {hp}: {len(rows)} examples across {n_features} features → {filename}")
+        print(f"  saved {filename}")
 
 
 if __name__ == "__main__":
