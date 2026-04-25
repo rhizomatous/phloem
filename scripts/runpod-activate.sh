@@ -12,4 +12,7 @@ export HF_HOME=/workspace/huggingface
 # venv on container disk (fast IOPS for python imports)
 export UV_PROJECT_ENVIRONMENT=/root/phloem-venv
 
+# wandb
+export WANDB_ENTITY=vivshaw
+
 echo "ready. HF_HOME=$HF_HOME, venv=$UV_PROJECT_ENVIRONMENT"
