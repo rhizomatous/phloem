@@ -26,3 +26,6 @@ fi
 
 echo ""
 echo "=== done! ==="
+echo "now activate your environment in this terminal:"
+echo ""
+echo "  source scripts/runpod-activate.sh"
