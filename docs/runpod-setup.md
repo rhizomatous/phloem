@@ -93,7 +93,8 @@ uv run python models/gemma-4-e2b/train.py \
     --max-tokens 8000000000 \
     --layers all \
     --seq-len 1024 \
-    --batch-size 16 \
+    --batch-size 4 \
+    --grad-acc-steps 4 \
     --expansion-factor 32 \
     --wandb \
     --data-dir /workspace/tokenized-8B \

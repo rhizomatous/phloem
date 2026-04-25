@@ -78,6 +78,7 @@ def train_sae(
     expansion_factor: int = 8,
     k: int = 100,
     batch_size: int = 16,
+    grad_acc_steps: int = 1,
     lr: float | None = None,
     device: str = "auto",
     log_to_wandb: bool = False,
@@ -121,6 +122,7 @@ def train_sae(
     cfg = TrainConfig(
         sae=sae_cfg,
         batch_size=batch_size,
+        grad_acc_steps=grad_acc_steps,
         hookpoints=hookpoints,
         lr=lr,
         log_to_wandb=log_to_wandb,
@@ -155,6 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--expansion-factor", type=int, default=8)
     parser.add_argument("--k", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--grad-acc-steps", type=int, default=1, help="gradient accumulation steps (effective batch = batch-size × grad-acc-steps)")
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--wandb", action="store_true", dest="log_to_wandb")
@@ -185,6 +188,7 @@ if __name__ == "__main__":
         expansion_factor=args.expansion_factor,
         k=args.k,
         batch_size=args.batch_size,
+        grad_acc_steps=args.grad_acc_steps,
         lr=args.lr,
         device=args.device,
         log_to_wandb=args.log_to_wandb,
