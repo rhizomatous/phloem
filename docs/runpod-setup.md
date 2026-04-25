@@ -82,3 +82,23 @@ scp -P <pod-port> -r root@<pod-ip>:/workspace/phloem/models/gemma-4-e2b/checkpoi
 ```
 
 or, push to HuggingFace Hub from the pod.
+
+## full run
+
+```
+uv run python models/gemma-4-e2b/train.py \
+    --max-tokens 8000000000 \
+    --layers all \
+    --seq-len 1024 \
+    --batch-size 16 \
+    --expansion-factor 32 \
+    --wandb \
+    --run-name all-layers-32x-8B
+
+uv run python models/gemma-4-e2b/eval.py models/gemma-4-e2b/checkpoints/all-layers-32x-8B
+
+uv run python models/gemma-4-e2b/max_activations.py \
+    models/gemma-4-e2b/checkpoints/all-layers-32x-8B \
+    --max-tokens 10000000 \
+    --layers all
+```
