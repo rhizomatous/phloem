@@ -96,6 +96,7 @@ uv run python models/gemma-4-e2b/train.py \
     --batch-size 16 \
     --expansion-factor 32 \
     --wandb \
+    --data-dir /workspace/tokenized-8B \
     --run-name all-layers-32x-8B
 
 uv run python models/gemma-4-e2b/eval.py models/gemma-4-e2b/checkpoints/all-layers-32x-8B

@@ -33,13 +33,19 @@ def build_dataset(
 ) -> MemmapDataset:
     """stream RedPajama tokens into a shuffled numpy memmap on disk.
 
-    collects batches as numpy arrays (4 bytes/token as uint32) rather than
-    Python lists (~28 bytes/int), then writes a flat binary file that
-    sparsify's MemmapDataset reads lazily during training.
+    if a tokens.bin file already exists at data_dir, reuses it instead of
+    re-streaming. collects batches as numpy arrays (4 bytes/token as uint32),
+    then writes a flat binary file that sparsify's MemmapDataset reads lazily.
     """
     if data_dir is None:
         data_dir = tempfile.mkdtemp(prefix="phloem-")
     data_path = Path(data_dir) / "tokens.bin"
+
+    if data_path.exists():
+        print(f"reusing existing tokenized data at {data_path}")
+        return MemmapDataset(str(data_path), ctx_len=seq_len, dtype=np.uint32)
+
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
 
     chunks: list[np.ndarray] = []
     for batch in stream_token_batches(
@@ -56,7 +62,7 @@ def build_dataset(
     rng = np.random.default_rng(seed)
     rng.shuffle(all_tokens)
 
-    # srite to flat binary. MemmapDataset reshapes to (-1, ctx_len) on load.
+    # write to flat binary. MemmapDataset reshapes to (-1, ctx_len) on load.
     mmap = np.memmap(data_path, dtype=np.uint32, mode="w+", shape=all_tokens.shape)
     mmap[:] = all_tokens
     mmap.flush()
