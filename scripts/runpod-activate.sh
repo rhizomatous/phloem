@@ -13,6 +13,6 @@ export HF_HOME=/workspace/huggingface
 export UV_PROJECT_ENVIRONMENT=/root/phloem-venv
 
 # wandb
-export WANDB_ENTITY=vivshaw
+export WANDB_ENTITY=rhizomatous
 
 echo "ready. HF_HOME=$HF_HOME, venv=$UV_PROJECT_ENVIRONMENT"
