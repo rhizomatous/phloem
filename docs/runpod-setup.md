@@ -55,6 +55,9 @@ uv sync
 cat > .env << 'EOF'
 HF_TOKEN=hf_your_token_here
 EOF
+
+# log in to wandb for training dashboards
+uv run wandb login
 ```
 
 # other useful tidbits

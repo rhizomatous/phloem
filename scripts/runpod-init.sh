@@ -13,6 +13,9 @@ apt-get update && apt-get install -y python3.10-dev
 echo "=== installing deps ==="
 uv sync
 
+echo "=== wandb login ==="
+uv run wandb login
+
 echo "=== setting up .env ==="
 if [ ! -f .env ]; then
     echo "HF_TOKEN=hf_your_token_here"

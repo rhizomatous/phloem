@@ -11,6 +11,7 @@ dependencies = [
     "torch",
     "pyarrow",
     "safetensors",
+    "wandb",
     "python-dotenv",
 ]
 
