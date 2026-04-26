@@ -1,6 +1,7 @@
 """find max-activating examples for each SAE feature across all layers."""
 
 import argparse
+import json
 from pathlib import Path
 
 import pyarrow as pa
@@ -33,7 +34,10 @@ def collect_max_activations(
 ) -> dict[str, list[list]]:
     """run inference and collect top-N activating examples per feature per layer.
 
-    returns {hookpoint: [[feature_idx, activation, token, context], ...]}
+    returns {hookpoint: [[feature_idx, activation, token, context,
+                          token_acts, context_tokens], ...]}
+    where token_acts is per-token activation values across the context window,
+    and context_tokens is the individual tokens (for aligned display).
     """
     # load SAEs for all hookpoints
     saes: dict[str, SparseCoder] = {}
@@ -59,19 +63,16 @@ def collect_max_activations(
     for hp in saes:
         handles.append(modules[hp].register_forward_hook(make_hook(hp)))
 
-    # per-feature tracking: for each hookpoint, keep the top-N activation values
-    # and the (batch_step, batch_idx, seq_idx) coordinates to reconstruct context later.
-    # top_vals[hp] shape: (num_latents, top_n) — the N highest activations seen so far.
-    # top_coords[hp] shape: (num_latents, top_n, 3) — (batch_step, batch_idx, seq_idx).
-    # we also store all token_ids to look up context at the end.
+    # per-feature tracking tensors
     top_vals: dict[str, torch.Tensor] = {}
     top_coords: dict[str, torch.Tensor] = {}
+    # per-token activations for each heap entry: {hp: {(feat_idx, slot): list[float]}}
+    top_token_acts: dict[str, dict[tuple[int, int], list[float]]] = {}
     for hp, sae in saes.items():
         top_vals[hp] = torch.full((sae.num_latents, top_n), -float("inf"))
         top_coords[hp] = torch.zeros((sae.num_latents, top_n, 3), dtype=torch.long)
+        top_token_acts[hp] = {}
 
-    # store all batch token_ids so we can build context strings at the end.
-    # at 10M tokens / 1024 seq_len / 16 batch = 610 batches × 16 × 1024 ints = ~40 MB.
     all_token_ids: list[torch.Tensor] = []
 
     batch_step = 0
@@ -95,7 +96,6 @@ def collect_max_activations(
             with torch.no_grad():
                 out = sae(acts.reshape(-1, d).float())
 
-            # out.latent_indices: (b*s, k), out.latent_acts: (b*s, k)
             indices = out.latent_indices.cpu()  # (b*s, k)
             values = out.latent_acts.cpu().float()  # (b*s, k)
 
@@ -104,25 +104,19 @@ def collect_max_activations(
             n_tokens = b * s
             k = indices.shape[1]
 
-            # build per-feature max activation and argmax across this batch.
-            # dense_acts[feat, token_pos] = activation if that feature fired, else 0.
             dense_acts = torch.zeros(sae.num_latents, n_tokens)
-            feat_flat = indices.reshape(-1)  # (b*s*k,)
-            vals_flat = values.reshape(-1)   # (b*s*k,)
-            pos_flat = torch.arange(n_tokens).unsqueeze(1).expand(-1, k).reshape(-1)  # (b*s*k,)
+            feat_flat = indices.reshape(-1)
+            vals_flat = values.reshape(-1)
+            pos_flat = torch.arange(n_tokens).unsqueeze(1).expand(-1, k).reshape(-1)
             dense_acts[feat_flat, pos_flat] = vals_flat
 
-            # for each feature, get its single best activation in this batch
-            best_vals, best_pos = dense_acts.max(dim=1)  # (num_latents,) each
+            best_vals, best_pos = dense_acts.max(dim=1)
 
-            # check which features have a new activation that beats the current
-            # worst in their top-N heap (the min of top_vals[hp][feat]).
-            current_mins, current_min_idx = top_vals[hp].min(dim=1)  # (num_latents,)
-            improved = best_vals > current_mins  # (num_latents,) bool mask
+            current_mins, current_min_idx = top_vals[hp].min(dim=1)
+            improved = best_vals > current_mins
 
             if improved.any():
-                # build coordinates for the improved features
-                improved_pos = best_pos[improved]  # token positions within this batch
+                improved_pos = best_pos[improved]
                 batch_indices = improved_pos // s
                 seq_indices = improved_pos % s
 
@@ -130,27 +124,39 @@ def collect_max_activations(
                     torch.full_like(batch_indices, batch_step),
                     batch_indices,
                     seq_indices,
-                ], dim=1)  # (n_improved, 3)
+                ], dim=1)
 
-                # replace the worst entry in each improved feature's top-N
-                replace_idx = current_min_idx[improved]  # which slot to replace
+                replace_idx = current_min_idx[improved]
                 feat_mask = improved.nonzero(as_tuple=True)[0]
 
                 top_vals[hp][feat_mask, replace_idx] = best_vals[improved]
                 top_coords[hp][feat_mask, replace_idx] = coords
+
+                # extract per-token activations for each improved feature's
+                # context window from the dense activation matrix.
+                for i in range(feat_mask.shape[0]):
+                    fi = feat_mask[i].item()
+                    slot = replace_idx[i].item()
+                    bi = batch_indices[i].item()
+                    si = seq_indices[i].item()
+
+                    ctx_start = bi * s + max(0, si - CONTEXT_WINDOW)
+                    ctx_end = bi * s + min(s, si + CONTEXT_WINDOW + 1)
+                    token_acts = dense_acts[fi, ctx_start:ctx_end].tolist()
+                    top_token_acts[hp][(fi, slot)] = token_acts
 
         batch_step += 1
 
     for h in handles:
         h.remove()
 
-    # convert to result rows, resolving coordinates to context strings
+    # resolve coordinates to context strings and attach per-token activations
     print("resolving context strings...")
     results = {}
     for hp in saes:
         rows = []
-        vals = top_vals[hp]      # (num_latents, top_n)
-        coords = top_coords[hp]  # (num_latents, top_n, 3)
+        vals = top_vals[hp]
+        coords = top_coords[hp]
 
         for feat_idx in range(vals.shape[0]):
             for slot in range(top_n):
@@ -160,9 +166,16 @@ def collect_max_activations(
                 bs, bi, si = coords[feat_idx, slot].tolist()
                 token_ids = all_token_ids[bs][bi]
                 ctx = _build_context(tokenizer, token_ids, si)
-                rows.append([feat_idx, val, ctx["token"], ctx["context"]])
+                token_acts = top_token_acts[hp].get((feat_idx, slot), [])
+                rows.append([
+                    feat_idx,
+                    val,
+                    ctx["token"],
+                    ctx["context"],
+                    token_acts,
+                    ctx["context_tokens"],
+                ])
 
-        # sort by feature then by activation descending
         rows.sort(key=lambda r: (r[0], -r[1]))
         results[hp] = rows
         n_features = len(set(r[0] for r in rows))
@@ -176,7 +189,7 @@ def _build_context(
     token_ids: torch.Tensor,
     position: int,
 ) -> dict:
-    """extract the activating token and its surrounding context."""
+    """extract the activating token, surrounding context, and individual tokens."""
     ids = token_ids.tolist()
     start = max(0, position - CONTEXT_WINDOW)
     end = min(len(ids), position + CONTEXT_WINDOW + 1)
@@ -184,8 +197,13 @@ def _build_context(
     token_str = tokenizer.decode([ids[position]])
     context_ids = ids[start:end]
     context_str = tokenizer.decode(context_ids)
+    context_tokens = [tokenizer.decode([tid]) for tid in context_ids]
 
-    return {"token": token_str.strip(), "context": context_str.strip()}
+    return {
+        "token": token_str.strip(),
+        "context": context_str.strip(),
+        "context_tokens": context_tokens,
+    }
 
 
 def save_parquet(results: dict[str, list[list]], output_dir: str) -> None:
@@ -198,6 +216,8 @@ def save_parquet(results: dict[str, list[list]], output_dir: str) -> None:
         ("activation", pa.float32()),
         ("token", pa.string()),
         ("context", pa.string()),
+        ("token_activations", pa.string()),  # JSON-encoded list of floats
+        ("context_tokens", pa.string()),     # JSON-encoded list of strings
     ])
 
     for hp, rows in results.items():
@@ -209,6 +229,8 @@ def save_parquet(results: dict[str, list[list]], output_dir: str) -> None:
                 "activation": [r[1] for r in rows],
                 "token": [r[2] for r in rows],
                 "context": [r[3] for r in rows],
+                "token_activations": [json.dumps(r[4]) for r in rows],
+                "context_tokens": [json.dumps(r[5]) for r in rows],
             },
             schema=schema,
         )
