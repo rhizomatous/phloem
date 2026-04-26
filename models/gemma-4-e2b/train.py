@@ -83,6 +83,7 @@ def train_sae(
     device: str = "auto",
     log_to_wandb: bool = False,
     save_dir: str = "models/gemma-4-e2b/checkpoints",
+    save_every: int = 100,
     run_name: str = "gemma-4-e2b-topk",
     seed: int = 42,
     data_dir: str | None = None,
@@ -127,6 +128,7 @@ def train_sae(
         lr=lr,
         log_to_wandb=log_to_wandb,
         save_dir=save_dir,
+        save_every=save_every,
         run_name=run_name,
         finetune=resume,
     )
@@ -162,6 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="auto")
     parser.add_argument("--wandb", action="store_true", dest="log_to_wandb")
     parser.add_argument("--save-dir", default="models/gemma-4-e2b/checkpoints")
+    parser.add_argument("--save-every", type=int, default=100)
     parser.add_argument("--run-name", default="gemma-4-e2b-topk")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -193,6 +196,7 @@ if __name__ == "__main__":
         device=args.device,
         log_to_wandb=args.log_to_wandb,
         save_dir=args.save_dir,
+        save_every=args.save_every,
         run_name=args.run_name,
         seed=args.seed,
         data_dir=args.data_dir,

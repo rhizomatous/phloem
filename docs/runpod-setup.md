@@ -88,17 +88,21 @@ or, push to HuggingFace Hub from the pod.
 
 ## full run
 
-```
+```sh
+# run in tmux so it can be in background and not die with SSH session
+tmux new -s train
+
 uv run python models/gemma-4-e2b/train.py \
-    --max-tokens 8000000000 \
+    --max-tokens 1000000000 \
     --layers all \
     --seq-len 1024 \
     --batch-size 4 \
     --grad-acc-steps 4 \
     --expansion-factor 32 \
     --wandb \
-    --data-dir /workspace/tokenized-8B \
-    --run-name all-layers-32x-8B
+    --data-dir /workspace/tokenized-1B \
+    --run-name all-layers-32x-1B
+    --save-every 500
 
 uv run python models/gemma-4-e2b/eval.py models/gemma-4-e2b/checkpoints/all-layers-32x-8B
 
@@ -106,4 +110,6 @@ uv run python models/gemma-4-e2b/max_activations.py \
     models/gemma-4-e2b/checkpoints/all-layers-32x-8B \
     --max-tokens 10000000 \
     --layers all
+
+# Ctrl-b d to detach
 ```
