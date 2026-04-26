@@ -101,13 +101,13 @@ uv run python models/gemma-4-e2b/train.py \
     --expansion-factor 32 \
     --wandb \
     --data-dir /workspace/tokenized-1B \
-    --run-name all-layers-32x-1B
+    --run-name all-layers-32x-1B \
     --save-every 500
 
-uv run python models/gemma-4-e2b/eval.py models/gemma-4-e2b/checkpoints/all-layers-32x-8B
+uv run python models/gemma-4-e2b/eval.py models/gemma-4-e2b/checkpoints/all-layers-32x-1B
 
 uv run python models/gemma-4-e2b/max_activations.py \
-    models/gemma-4-e2b/checkpoints/all-layers-32x-8B \
+    models/gemma-4-e2b/checkpoints/all-layers-32x-1B \
     --max-tokens 10000000 \
     --layers all
 

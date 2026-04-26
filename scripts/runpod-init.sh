@@ -8,7 +8,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source scripts/runpod-activate.sh
 
 echo "=== installing python dev headers (triton needs these) ==="
-apt-get update && apt-get install -y python3.10-dev
+apt-get update && apt-get install -y python3.10-dev tmux
 
 echo "=== installing deps ==="
 uv sync
