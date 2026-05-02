@@ -99,6 +99,9 @@ uv run python models/gemma-4-e2b/train.py \
     --batch-size 4 \
     --grad-acc-steps 4 \
     --expansion-factor 32 \
+    --exclude-bos \
+    --auxk-alpha 0.03 \
+    --lr 2.89e-4 \
     --wandb \
     --data-dir /workspace/tokenized-1B \
     --run-name all-layers-32x-1B \

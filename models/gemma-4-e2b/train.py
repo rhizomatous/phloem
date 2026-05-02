@@ -80,6 +80,8 @@ def train_sae(
     batch_size: int = 16,
     grad_acc_steps: int = 1,
     lr: float | None = None,
+    auxk_alpha: float = 0.0,
+    exclude_bos: bool = False,
     device: str = "auto",
     log_to_wandb: bool = False,
     save_dir: str = "models/gemma-4-e2b/checkpoints",
@@ -120,12 +122,16 @@ def train_sae(
         expansion_factor=expansion_factor,
         multi_topk=True,
     )
+    exclude_tokens = [2] if exclude_bos else []  # token ID 2 = <bos>
+
     cfg = TrainConfig(
         sae=sae_cfg,
         batch_size=batch_size,
         grad_acc_steps=grad_acc_steps,
         hookpoints=hookpoints,
         lr=lr,
+        auxk_alpha=auxk_alpha,
+        exclude_tokens=exclude_tokens,
         log_to_wandb=log_to_wandb,
         save_dir=save_dir,
         save_every=save_every,
@@ -161,6 +167,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--grad-acc-steps", type=int, default=1, help="gradient accumulation steps (effective batch = batch-size × grad-acc-steps)")
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--auxk-alpha", type=float, default=0.0, help="weight for AuxK dead-feature loss (e.g. 1/32)")
+    parser.add_argument("--exclude-bos", action="store_true", help="exclude BOS token (id=2) from training")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--wandb", action="store_true", dest="log_to_wandb")
     parser.add_argument("--save-dir", default="models/gemma-4-e2b/checkpoints")
@@ -193,6 +201,8 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         grad_acc_steps=args.grad_acc_steps,
         lr=args.lr,
+        auxk_alpha=args.auxk_alpha,
+        exclude_bos=args.exclude_bos,
         device=args.device,
         log_to_wandb=args.log_to_wandb,
         save_dir=args.save_dir,
